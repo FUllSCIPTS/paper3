@@ -1,0 +1,231 @@
+theory test
+
+begin
+
+builtins: hashing
+
+functions: h1/1, h2/1
+
+
+
+//long-term keys are registered
+
+rule register_longterm_keys:
+
+
+
+[Fr(~K_i), Fr(~LGK)]
+
+--[Role('SeCU'),Role('ECU'), Role('OEM')]->
+
+[!LtkS1($SeCU,$ECU,~K_i),!LtT($SeCU,$ECU,~LGK)]
+
+
+
+//ECU and SeCU are initialised by binding with long-term keys
+
+rule initialise_ECU:
+
+[Fr(~id),!LtkS1(SeCU,ECU,K_i),!LtT(SeCU,ECU,LGK)]
+
+--[Create(ECU, ~id), 
+Role('ECU'),Role('SeCU') ]->
+
+[St_ECU_1(ECU, ~id,K_i,LGK, SeCU)]
+
+rule initialise_SeCU:
+
+[ Fr(~id),!LtkS1(SeCU,ECU,K_i),!LtT(SeCU,ECU,LGK)]
+
+--[Create(SeCU, ~id), 
+Role('SeCU'),Role('ECU') ]->
+
+[St_SeCU_1(SeCU, ~id, K_i,LGK,ECU)]
+
+
+
+
+
+//ECU sends first message
+
+rule send_1:
+let
+sigma_1=h(<~rand,K_i>)
+in
+
+[Fr(~rand),!LtkS1(SeCU,ECU,K_i),St_ECU_1(ECU, ~id,K_i,LGK, SeCU)]
+--[Send(<ECU,<sigma_1>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('ECU'),Running_strongA(SeCU,ECU,~rand)]->
+[St_ECU_2(ECU, ~id,K_i,LGK,~rand,sigma_1,SeCU), Out(<~rand,sigma_1>)]
+
+
+rule Recv_1:
+let
+sigma_1=h(<rand,K_i>)
+in
+
+[In(<rand,sigma_1>),!LtkS1(SeCU,ECU,K_i),St_SeCU_1(SeCU, ~id, K_i,LGK,ECU)]
+--[Receive(<SeCU,<sigma_1>>),
+ Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU'),Running_strongB(ECU,SeCU,rand) ]->
+[St_SeCU_2(SeCU, ~id, K_i,LGK,rand,sigma_1,ECU)]
+
+rule send_2:
+let 
+k_ses=h(<LGK,~token>)
+k_sync=h(<LGK,~token>)
+k_pair=h(<LGK,~token>)
+sigma_2=h(<~token,rand,K_i>)
+in
+[Fr(~token),!LtkS1(SeCU,ECU,K_i),!LtT(SeCU,ECU,LGK),St_SeCU_2(SeCU, ~id, K_i,LGK,rand,sigma_1,ECU) ]
+--[Send(<SeCU,~token,sigma_2>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU'),Secret(SeCU,k_ses,k_sync,k_pair)]->
+[St_SeCU_3(SeCU, ~id, K_i,LGK,rand,sigma_1,~token,sigma_2,k_ses,k_sync,k_pair, ECU),Out(<~token,sigma_2>)]
+
+rule recv_2:
+let
+k_ses=h(<LGK,token>)
+k_sync=h(<LGK,token>)
+k_pair=h(<LGK,token>)
+sigma_2=h(<token,rand,K_i>)
+in
+[St_ECU_2(ECU, ~id,K_i,LGK,rand,sigma_1,SeCU),In(<token,sigma_2>)]
+--[Receive(<ECU,token,sigma_2>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('ECU'), Commit_strongA(ECU,SeCU,rand),Commit_strongB(SeCU,ECU,rand),Secret(ECU,k_ses,k_sync,k_pair)]->
+[St_ECU_3(ECU, ~id,K_i,LGK,rand,sigma_1,token,sigma_2,k_ses,k_sync,k_pair,SeCU)]
+
+rule send_3:
+let
+sigma_3=h(<~rand_2,k_sync>)
+in
+[Fr(~rand_2),St_ECU_3(ECU, ~id,K_i,LGK,rand,sigma_1,token,sigma_2,k_ses,k_sync,k_pair,SeCU)]
+--[Send(<ECU,~rand_2,sigma_3>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('ECU')]->
+[St_ECU_4(ECU, ~id,K_i,LGK,rand,sigma_1,token,sigma_2,k_ses,k_sync,k_pair,~rand_2,sigma_3,SeCU), Out(<~rand_2,sigma_3>)]
+
+rule recv_3:
+let
+sigma_3=h(<rand_2,k_sync>)
+in
+[In(<rand_2,sigma_3>),St_SeCU_3(SeCU, ~id, K_i,LGK,rand,sigma_1,~token,sigma_2,k_ses,k_sync,k_pair, ECU)]
+--[Receive(<SeCU,rand_2,sigma_3>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU')]->
+[St_SeCU_4(SeCU, ~id, K_i,LGK,rand,sigma_1,~token,sigma_2,k_ses,k_sync,k_pair,rand_2,sigma_3, ECU)]
+
+
+rule send_4:
+let
+sigma_4=h(<~t_SeCU,rand_2,k_sync>)
+in
+[Fr(~t_SeCU),St_SeCU_4(SeCU, ~id, K_i,LGK,rand,sigma_1,~token,sigma_2,k_ses,k_sync,k_pair,rand_2,sigma_3, ECU)]
+--[Send(<SeCU,~t_SeCU,sigma_4>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU')]->
+[St_SeCU_5(SeCU, ~id, K_i,LGK,rand,sigma_1,~token,sigma_2,k_ses,k_sync,k_pair,rand_2,sigma_3,~t_SeCU,sigma_4, ECU), Out(<~t_SeCU,sigma_4>)]
+
+rule recv_4:
+let
+sigma_4=h(<t_SeCU,rand_2,k_sync>)
+in
+
+[In(<t_SeCU,sigma_4>),St_ECU_4(ECU, ~id,K_i,LGK,rand,sigma_1,token,sigma_2,k_ses,k_sync,k_pair,rand_2,sigma_3,SeCU)]
+--[Receive(<ECU,t_SeCU,sigma_4>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('ECU')]->
+[St_ECU_5(ECU, ~id,K_i,LGK,rand,sigma_1,token,sigma_2,k_ses,k_sync,k_pair,rand_2,sigma_3,t_SeCU,sigma_4,SeCU)]
+
+
+
+rule KKS:
+let
+k_ses5=h(<LGK,~token5>)
+k_sync5=h(<LGK,~token5>)
+k_pair5=h(<LGK,~token5>)
+in
+[Fr(~token5),!LtT(SeCU,ECU,LGK),St_ECU_5(ECU, ~id,K_i,LGK,rand,sigma_1,token,sigma_2,k_ses,k_sync,k_pair,rand_2,sigma_3,t_SeCU,sigma_4,SeCU)]
+--[Sesreveal(ECU),Role('ECU')]->
+[Out(<k_ses5,k_sync5,k_pair5>),St_ECU_6(ECU, ~id,K_i,LGK,rand,sigma_1,token,sigma_2,k_ses,k_sync,k_pair,rand_2,sigma_3,t_SeCU,sigma_4,~token5,SeCU)]
+
+
+
+//	SECURITY PROPERTIES
+
+
+lemma executable:
+exists-trace
+"(Ex ECU SeCU  m #i #j. Send(<ECU,m>)@i & Receive(<SeCU,m>) @ j & i <j )<=>T"
+
+
+
+
+lemma Injectiveagreement_ECU:
+    " All rand ECU SeCU #i.
+        Commit_strongA(ECU,SeCU,rand)@ i
+        ==>
+        (Ex #j . Running_strongA(SeCU,ECU,rand) @ j 
+          & j < i 
+& not (Ex ECU2 SeCU2 #i2. Commit_strongA(ECU2,SeCU2,rand) @ i2
+ & not (#i2 = #i)))
+    "
+
+lemma Injectiveagreement_SeCU:
+    " All rand ECU SeCU #i.
+        Commit_strongB(SeCU,ECU,rand)@ i
+        ==>
+        (Ex #j . Running_strongB(ECU,SeCU,rand) @ j 
+          & j < i 
+& not (Ex ECU2 SeCU2 #i2. Commit_strongB(SeCU2,ECU2,rand) @ i2
+ & not (#i2 = #i)))
+    "
+
+lemma ECU_secrecy:
+exists-trace
+
+  " 
+
+ not(Ex k_ses k_sync k_pair #r.!KU(<k_ses,k_sync,k_pair>)@r)"
+
+
+lemma SeCU_secrecy:
+exists-trace
+
+  " 
+ 
+        
+     not ( Ex k_ses k_sync k_pair #r.!KU(<k_ses,k_sync,k_pair>)@r)"
+
+
+
+lemma ECUi_KKS:
+
+exists-trace
+
+  " 
+ 
+        
+
+     not ( Ex k_ses k_sync k_pair #r.K(<k_ses,k_sync,k_pair>)@r) & Ex ECU #y.Sesreveal(ECU)@ y "
+
+
+
+
+
+end
+
+
+
+
+

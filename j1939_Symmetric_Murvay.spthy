@@ -1,0 +1,247 @@
+theory test
+
+begin
+
+builtins: hashing, symmetric-encryption
+
+functions: h1/1, h2/1, senc/2
+
+
+
+//long-term keys are registered
+
+rule register_longterm_keys:
+
+let
+Token=senc(<'V_ID','G_ID',~K_No>,~K_OEM_SeCU)
+in
+
+[Fr(~K_ECU_SeCU), Fr(~K_OEM_SeCU),Fr(~K_No)]
+
+--[Role('SeCU'),Role('ECU'), Role('OEM')]->
+
+[!LtkS1($SeCU,$ECU,~K_ECU_SeCU),!LtT($SeCU,$ECU,Token),!LtkS2($SeCU,$OEM,~K_OEM_SeCU),Out(<Token>)]
+
+
+
+//ECU and SeCU are initialised by binding with long-term keys
+
+rule initialise_ECU:
+
+[Fr(~id),!LtkS1(SeCU,ECU,K_ECU_SeCU),!LtT(SeCU,ECU,Token)]
+
+--[Create(ECU, ~id), 
+Role('ECU'),Role('SeCU') ]->
+
+[St_ECU_1(ECU, ~id,K_ECU_SeCU,Token, SeCU)]
+
+rule initialise_SeCU:
+
+[ Fr(~id),!LtkS2(SeCU,OEM,K_OEM_SeCU),!LtkS1(SeCU,ECU,K_ECU_SeCU),!LtT(SeCU,ECU,Token)]
+
+--[Create(SeCU, ~id), 
+Role('SeCU'),Role('ECU') ]->
+
+[St_SeCU_1(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,ECU)]
+
+
+
+
+
+//ECU sends first message
+
+rule send_1:
+let
+Token=senc(<'V_ID','G_ID',K_No>,K_OEM_SeCU)
+in
+
+[Fr(~rand),!LtT(SeCU,ECU,Token),St_ECU_1(ECU, ~id,K_ECU_SeCU,Token, SeCU)]
+--[Send(<ECU,<Token,~rand>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('ECU'),Commit_strongA(ECU,SeCU,~rand)]->
+[St_ECU_2(ECU, ~id,K_ECU_SeCU,Token,~rand, SeCU), Out(<Token,~rand>)]
+
+
+rule Recv_1:
+let
+Token=senc(<'V_ID','G_ID',K_No>,K_OEM_SeCU)
+in
+
+[In(<Token,rand>),!LtT(SeCU,ECU,Token),!LtkS2(SeCU,OEM,K_OEM_SeCU),St_SeCU_1(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,ECU)]
+--[Receive(<SeCU,<Token,rand>>),
+Decrypt(SeCU,sdec(Token,K_OEM_SeCU)),
+ Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU'),Running_strongA(SeCU,ECU,rand) ]->
+[St_SeCU_2(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,rand,K_No,ECU)]
+
+
+rule send_2:
+
+let
+
+
+Cypher=senc(<~K_ses,~K_sync,rand>,K_ECU_SeCU)
+in
+
+[ Fr(~K_ses),Fr(~K_sync),!LtkS1(SeCU,ECU,K_ECU_SeCU),St_SeCU_2(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,rand,K_No,ECU)]
+
+--[Send(<SeCU,<Cypher>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('SeCU'),Commit_strongB(SeCU,ECU,rand)]->
+
+
+[St_SeCU_3(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,rand,K_No,~K_ses,~K_sync,ECU), Out(<Cypher>)]
+
+rule Recv_2:
+
+let
+
+
+Cypher=senc(<K_ses,K_sync,rand>,K_ECU_SeCU)
+in
+
+[In(<Cypher>),St_ECU_2(ECU, ~id,K_ECU_SeCU,Token,rand, SeCU)]
+
+--[Receive(<ECU,<Cypher>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('ECU'),Decrypt(ECU,sdec(Cypher,K_ECU_SeCU)),Running_strongB(ECU,SeCU,rand) ]->
+
+[St_ECU_3(ECU, ~id,K_ECU_SeCU,Token,rand,K_ses,K_sync, SeCU)]
+
+
+
+rule send_3:
+let
+MAC_1=h(<K_sync,~rand1>)
+
+in
+
+[Fr(~rand1),St_ECU_3(ECU, ~id,K_ECU_SeCU,Token,rand,K_ses,K_sync, SeCU)]
+--[Send(<ECU,<~rand1,MAC_1>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('SeCU')]->
+[Out(<~rand1,MAC_1>),St_ECU_4(ECU, ~id,K_ECU_SeCU,Token,rand,K_ses,K_sync,~rand1,SeCU)]
+
+
+rule Recv_3:
+
+let
+MAC_1=h(<K_sync,rand1>)
+
+in
+
+[In(<rand1,MAC_1>),St_SeCU_3(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,rand,K_No,K_ses,K_sync,ECU)]
+--[Receive(<SeCU,<rand1,MAC_1>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('SeCU')]->
+
+[St_SeCU_4(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,rand,K_No,K_ses,K_sync,rand1,ECU)]
+
+
+rule send_4:
+let
+MAC_2=h(<K_sync,~t_SeCU,rand1>)
+in
+[Fr(~t_SeCU),St_SeCU_4(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,rand,K_No,K_ses,K_sync,rand1,ECU)]
+--[Send(<SeCU,<~t_SeCU,MAC_2>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('SeCU')]->
+
+[Out(<~t_SeCU,MAC_2>),St_SeCU_5(SeCU, ~id, K_OEM_SeCU,K_ECU_SeCU,Token,rand,K_No,K_ses,K_sync,rand1,~t_SeCU,ECU)]
+
+rule Recv_4:
+let
+MAC_2=h(<K_sync,t_SeCU,rand1>)
+in
+[In(<t_SeCU,MAC_2>),St_ECU_4(ECU, ~id,K_ECU_SeCU,Token,rand,K_ses,K_sync,rand1,SeCU)]
+--[Receive(<ECU,<t_SeCU,MAC_2>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('SeCU')]->
+[St_ECU_5(ECU, ~id,K_ECU_SeCU,Token,rand,K_ses,K_sync,rand1,t_SeCU,SeCU)]
+
+
+//	SECURITY PROPERTIES
+
+
+lemma executable:
+exists-trace
+"(Ex ECU SeCU  m #i #j. Send(<ECU,m>)@i & Receive(<SeCU,m>) @ j & i <j )<=>T"
+
+
+lemma aliveness_ECU:
+" All rand ECU SeCU #i .
+        Commit_strongA(ECU,SeCU,rand)@ i
+        ==>
+        (Ex id #j. Create(SeCU,id)@j)"
+
+lemma aliveness_SeCU:
+" All rand ECU SeCU #i .
+        Commit_strongB(SeCU,ECU,rand)@ i
+        ==>
+        (Ex id #j. Create(ECU,id)@j)"
+
+lemma weak_agreement_ECU:
+" All rand ECU SeCU #i .
+        Commit_strongA(ECU,SeCU,rand)@ i
+        ==>
+        (Ex rand #j. Running_strongA(SeCU,ECU,rand)@ j)"
+
+lemma weak_agreement_SeCU:
+" All rand ECU SeCU #i .
+        Commit_strongB(ECU,SeCU,rand)@ i
+        ==>
+        (Ex rand #j. Running_strongB(SeCU,ECU,rand)@ j)"
+
+lemma Non_injective_agreement_ECU:
+" All rand ECU SeCU #i .
+        Commit_strongA(ECU,SeCU,rand)@ i
+        ==>
+        (Ex  #j. Running_strongA(SeCU,ECU,rand)@ j)"
+
+lemma Non_injective_agreement_SeCU:
+" All rand ECU SeCU #i .
+        Commit_strongB(ECU,SeCU,rand)@ i
+        ==>
+        (Ex  #j. Running_strongB(SeCU,ECU,rand)@ j)"
+
+
+lemma Injectiveagreement_ECU:
+    " All rand ECU SeCU #i.
+        Commit_strongA(ECU,SeCU,rand)@ i
+        ==>
+        (Ex #j . Running_strongA(SeCU,ECU,rand) @ j 
+          & j < i 
+& not (Ex ECU2 SeCU2 #i2. Commit_strongA(ECU2,SeCU2,rand) @ i2
+ & not (#i2 = #i)))
+    "
+
+lemma Injectiveagreement_SeCU:
+    " All rand ECU SeCU #i.
+        Commit_strongB(SeCU,ECU,rand)@ i
+        ==>
+        (Ex #j . Running_strongB(ECU,SeCU,rand) @ j 
+          & j < i 
+& not (Ex ECU2 SeCU2 #i2. Commit_strongB(SeCU2,ECU2,rand) @ i2
+ & not (#i2 = #i)))
+    "
+
+
+
+
+
+
+
+end
+
+
+
+
+

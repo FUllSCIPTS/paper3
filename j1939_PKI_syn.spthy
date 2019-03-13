@@ -1,0 +1,247 @@
+theory pki
+
+begin
+
+builtins: hashing, signing, bilinear-pairing, symmetric-encryption
+
+functions: sign/2, verify/3, pk/1, pmult/2, senc/2, sdec/2, h/1
+
+
+
+//long-term keys are registered
+
+rule register_longterm_keys:
+
+
+
+[ Fr(~LGK), Fr(~lecu), Fr(~lsecu)]
+
+--[Role('SeCU'),Role('ECU'), Role('OEM')]->
+
+[!LtT($SeCU, ~LGK), !LTC($SeCU, $ECU, pk(~lecu), pk(~lsecu)), !LTS($ECU,~lecu), !LTSE($SeCU,~lsecu)]
+
+
+
+//ECU and SeCU are initialised by binding with long-term keys
+
+rule initialise_ECU:
+
+[Fr(~id),!LTC(SeCU, ECU, pk(lecu), pk(lsecu))]
+
+--[Create(ECU, ~id), 
+Role('ECU'), Role('SeCU') ]->
+
+[St_ECU_1(ECU, ~id,pk(lecu), pk(lsecu), SeCU)]
+
+rule initialise_SeCU:
+
+[ Fr(~id),!LtT(SeCU, LGK),!LTC(SeCU, ECU, pk(lecu), pk(lsecu))]
+
+--[Create(SeCU, ~id), 
+Role('SeCU'), Role('ECU') ]->
+
+[St_SeCU_1(SeCU, ~id,pk(lecu), pk(lsecu),ECU)]
+
+
+
+
+
+//ECU sends first message
+
+rule send_1:
+let
+xp=pmult(~x,'p')
+sigma_1=sign(xp,lecu)
+in
+
+[Fr(~x),!LTC(SeCU, ECU, pk(lecu), pk(lsecu)),!LTS(ECU,lecu),St_ECU_1(ECU, ~id,pk(lecu), pk(lsecu), SeCU)]
+--[Send(<ECU,<xp,sigma_1>>),
+ Honest(ECU),
+ Honest(SeCU), 
+Role('ECU'),Running_strongA(SeCU,ECU,xp)]->
+[St_ECU_2(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1, SeCU), Out(<xp,sigma_1>)]
+
+
+rule Recv_1:
+let
+xp=pmult(x,'p')
+sigma_1=sign(xp,lecu)
+in
+
+[In(<xp,sigma_1>), St_SeCU_1(SeCU, ~id,pk(lecu), pk(lsecu),ECU)]
+--[Receive(<SeCU,<xp,sigma_1>>), Signature_verification(<verify(sign(xp,lecu),xp,pk(lecu))>),
+ Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU') ]->
+[St_SeCU_2(SeCU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,ECU)]
+
+
+
+rule send_2:
+let
+K_ses=h(<~token_Gi,LGK>)
+K_sync=h(<~token_Gi,LGK>)
+K_syncpair=h(<~token_Gi,LGK>)
+yp=pmult(~y,'p')
+K=pmult(~y,xp)
+C=senc(<K_ses,K_sync,K_syncpair>,K)
+sigma_2=sign(<yp,C,xp>,lsecu)
+in
+[Fr(~token_Gi),Fr(~y),St_SeCU_2(SeCU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,ECU),!LTC(SeCU, ECU, pk(lecu), pk(lsecu)),!LtT(SeCU, LGK),!LTSE(SeCU,lsecu) ]
+--[Send(<SeCU,<yp,C,sigma_2>>), 
+ Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU'),Running_strongB(ECU,SeCU,yp)]->
+[St_SeCU_3(SeCU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,C,sigma_2,K_sync,ECU), Out(<yp,C,sigma_2>)]
+
+rule Recv_2:
+let
+K_ses=h(<token_Gi,LGK>)
+K_sync=h(<token_Gi,LGK>)
+K_syncpair=h(<token_Gi,LGK>)
+yp=pmult(y,'p')
+K=pmult(x,yp)
+C=senc(<K_ses,K_sync,K_syncpair>,K)
+sigma_2=sign(<yp,C,xp>,lsecu)
+in
+[In(<yp,C,sigma_2>), St_ECU_2(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1, SeCU),!LTC(SeCU, ECU, pk(lecu), pk(lsecu))]
+--[Receive(<ECU,<yp,C,sigma_2>>), Signature_verification(<verify(sign(<yp,C,xp>,lsecu),<yp,C,xp>,pk(lsecu))>), Decryption(<sdec(C,K),K>),
+ Honest(ECU), 
+Honest(SeCU),
+ Role('ECU'),Commit_strongA(ECU,SeCU,xp),Commit_strongB(SeCU,ECU,yp)]->
+[St_ECU_3(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,K,sigma_2,K_ses,K_sync,K_syncpair, SeCU)]
+
+
+rule send_3:
+let
+sigma_3=h(<~rand_2,K_sync>)
+in
+[Fr(~rand_2), St_ECU_3(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,K,sigma_2,K_ses,K_sync,K_syncpair, SeCU)]
+--[Send(<ECU,~rand_2,sigma_3>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('ECU')]->
+[St_ECU_4(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,K,sigma_2,K_ses,K_sync,K_syncpair,~rand_2,sigma_3, SeCU), Out(<~rand_2,sigma_3>)]
+
+rule recv_3:
+let
+sigma_3=h(<rand_2,K_sync>)
+in
+[In(<rand_2,sigma_3>),St_SeCU_3(SeCU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,C,sigma_2,K_sync,ECU)]
+--[Receive(<SeCU,rand_2,sigma_3>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU')]->
+[St_SeCU_4(SeCU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,C,sigma_2,K_sync,rand_2,sigma_3,ECU)]
+
+
+rule send_4:
+let
+sigma_4=h(<~t_SeCU,rand_2,K_sync>)
+in
+[Fr(~t_SeCU),St_SeCU_4(SeCU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,C,sigma_2,K_sync,rand_2,sigma_3,ECU)]
+--[Send(<SeCU,~t_SeCU,sigma_4>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('SeCU')]->
+[St_SeCU_5(SeCU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,C,sigma_2,K_sync,rand_2,sigma_3,~t_SeCU,sigma_4,ECU), Out(<~t_SeCU,sigma_4>)]
+
+rule recv_4:
+let
+sigma_4=h(<t_SeCU,rand_2,K_sync>)
+in
+
+[In(<t_SeCU,sigma_4>),St_ECU_4(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,K,sigma_2,K_ses,K_sync,K_syncpair,rand_2,sigma_3, SeCU)]
+--[Receive(<ECU,t_SeCU,sigma_4>),
+Honest(ECU), 
+Honest(SeCU),
+ Role('ECU')]->
+[St_ECU_5(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,K,sigma_2,K_ses,K_sync,K_syncpair,rand_2,sigma_3,t_SeCU,sigma_4, SeCU)]
+
+
+
+
+rule kks:
+let
+K_ses5=h(<~token_Gi5,LGK>)
+K_sync5=h(<~token_Gi5,LGK>)
+K_syncpair5=h(<~token_Gi5,LGK>)
+yp=pmult(y,'p')
+K=pmult(x,yp)
+C5=senc(<K_ses5,K_sync5,K_syncpair5>,K)
+
+in
+[Fr(~token_Gi5),!LtT(SeCU, LGK),St_ECU_5(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,K,sigma_2,K_ses,K_sync,K_syncpair,rand_2,sigma_3,t_SeCU,sigma_4, SeCU)]
+--[ Role('ECU'),Sesreveal(ECU)]->
+[Out(<K_ses5,K_sync5,K_syncpair5>),St_ECU_6(ECU, ~id,pk(lecu), pk(lsecu),xp,sigma_1,yp,K,sigma_2,K_ses,K_sync,K_syncpair,rand_2,sigma_3,t_SeCU,sigma_4,C5, SeCU)]
+
+//	SECURITY PROPERTIES
+
+
+lemma executable:
+exists-trace
+"(Ex ECU SeCU  m #i #j. Send(<ECU,m>)@i & Receive(<SeCU,m>) @ j & i <j )<=>T"
+
+
+
+
+lemma Injectiveagreement_ECU:
+    " All xp ECU SeCU #i.
+        Commit_strongA(ECU,SeCU,xp)@ i
+        ==>
+        (Ex #j . Running_strongA(SeCU,ECU,xp) @ j 
+          & j < i 
+& not (Ex ECU2 SeCU2 #i2. Commit_strongA(ECU2,SeCU2,xp) @ i2
+ & not (#i2 = #i)))
+    "
+
+lemma Injectiveagreement_SeCU:
+    " All yp ECU SeCU #i.
+        Commit_strongB(SeCU,ECU,yp)@ i
+        ==>
+        (Ex #j . Running_strongB(ECU,SeCU,yp) @ j 
+          & j < i 
+& not (Ex ECU2 SeCU2 #i2. Commit_strongB(SeCU2,ECU2,yp) @ i2
+ & not (#i2 = #i)))
+    "
+
+lemma ECU_secrecy:
+exists-trace
+
+  " 
+
+ not(Ex k_ses k_sync k_syncpair #r.K(<k_ses,k_sync,k_syncpair>)@r)"
+
+
+lemma SeCU_secrecy:
+exists-trace
+
+  " 
+ 
+        
+     not ( Ex k_ses k_sync k_syncpair #r.K(<k_ses,k_sync,k_syncpair>)@r)"
+
+
+
+lemma ECUi_KKS:
+
+exists-trace
+
+  " 
+ 
+        
+
+      All k_ses5 k_sync5 k_syncpair5 #y .K(<k_ses5,k_sync5,k_syncpair5>)@ y==>not ( Ex k_ses k_sync k_syncpair #r.K(<k_ses,k_sync,k_syncpair>)@r)  "
+
+
+lemma FS:
+
+exists-trace
+"
+All lecu #y.K(<lecu>) @y==>not ( Ex k_ses k_sync k_syncpair #r.K(<k_ses,k_sync,k_syncpair>)@r)"
+end
+
+
+
+
+
